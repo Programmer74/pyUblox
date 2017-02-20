@@ -645,7 +645,7 @@ class UBlox:
 
     port can be a file (for reading only) or a serial device
     '''
-    def __init__(self, port, baudrate=115200, timeout=0, useSpi=False):
+    def __init__(self, port, baudrate=115200, timeout=0):
 
         self.serial_device = port
         self.baudrate = baudrate
@@ -666,11 +666,15 @@ class UBlox:
         elif os.path.isfile(self.serial_device):
             self.read_only = True
             self.dev = open(self.serial_device, mode='rb')
-        elif useSpi:
+        if self.serial_device.startswith("spi:"):
             import spidev
+            bus, cs = map(int, self.serial_device.split(':')[1].split('.'))
+            print(bus, cs)
             self.use_xfer = True
             self.dev = spidev.SpiDev()
-            self.dev.open(0, 0)
+            self.dev.open(bus, cs)
+            #We reuse baudrate parameter but it's difficult to get default paramaters right. So it's better to specify them explicitly 
+            self.dev.max_speed_hz = baudrate
         else:
             import serial
             self.dev = serial.Serial(self.serial_device, baudrate=self.baudrate,
