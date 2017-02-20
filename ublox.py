@@ -814,6 +814,10 @@ class UBlox:
                 self.send(msg)
                 self.configure_poll(CLASS_CFG, MSG_CFG_NAVX5)
 
+    def receive_message_nonblocking(self, seconds=5):
+	'''nonblocking receive of one ublox message'''
+        with Timeout(seconds=seconds):
+            return self.receive_message()
 
     def receive_message(self, ignore_eof=False):
 	'''blocking receive of one ublox message'''
@@ -909,3 +913,18 @@ class UBlox:
         payload = struct.pack('<HBB', set, mode, 0)
         self.send_message(CLASS_CFG, MSG_CFG_RST, payload)
 
+class TimeoutError(Exception):
+    pass
+
+import signal
+class Timeout:
+    def __init__(self, seconds=1, msg='Timeout'):
+        self.seconds = seconds
+        self.msg = msg
+    def handle_timeout(self, signum, frame):
+        raise TimeoutError(self.msg)
+    def __enter__(self):
+        signal.signal(signal.SIGALRM, self.handle_timeout)
+        signal.alarm(self.seconds)
+    def __exit__(self, type, value, traceback):
+        signal.alarm(0)
