@@ -214,7 +214,14 @@ class UBloxDescriptor:
             size1 = struct.calcsize(fmt)
             if size1 > len(buf):
                 raise UBloxError("%s INVALID_SIZE1=%u" % (self.name, len(buf)))
-            f1 = list(struct.unpack(fmt, buf[:size1]))
+            try:
+                f1 = list(struct.unpack(fmt, buf[:size1]))
+            except TypeError: # python 3 fix
+                frame = bytearray()
+                #frame = bytes([ ord(buf[4]) ])
+                for j in range(0, size1):
+                    frame.append(ord(buf[j]))
+                f1 = list(struct.unpack(fmt, frame))
             i = 0
             while i < len(f1):
                 field = fields.pop(0)
@@ -247,7 +254,15 @@ class UBloxDescriptor:
             r = UBloxAttrDict()
             if size2 > len(buf):
                 raise UBloxError("INVALID_SIZE=%u, " % len(buf))
-            f2 = list(struct.unpack(self.format2, buf[:size2]))
+                
+            try:
+                f2 = list(struct.unpack(self.format2, buf[:size2]))
+            except TypeError: # python 3 fix
+                frame = bytearray()
+                for j in range(0, size2):
+                    frame.append(ord(buf[j]))
+                f2 = list(struct.unpack(self.format2, frame))
+            
             for i in range(len(self.fields2)):
                 r[self.fields2[i]] = f2[i]
             buf = buf[size2:]
@@ -583,7 +598,13 @@ class UBloxMessage:
 
     def msg_length(self):
         '''return the payload length'''
-        (payload_length,) = struct.unpack('<H', self._buf[4:6])
+        try:
+            (payload_length,) = struct.unpack('<H', self._buf[4:6])
+        except TypeError: # python 3 workaround since string does not have buffer interface
+            #print(self._buf[4])
+            #print(self._buf[5])
+            frame = bytes([ ord(self._buf[4]), ord(self._buf[5]) ])
+            (payload_length,) = struct.unpack('<H', frame)
         return payload_length
 
     def valid_so_far(self):
@@ -618,7 +639,12 @@ class UBloxMessage:
         ck_a = 0
         ck_b = 0
         for i in data:
-            ck_a = (ck_a + ord(i)) & 0xFF
+            #print(i)
+            #print(ord(i))
+            try: 
+                ck_a = (ck_a + ord(i)) & 0xFF
+            except TypeError: # python 3 workaround since in python3 data will be bytes, no ord required
+                ck_a = (ck_a + i) & 0xFF
             ck_b = (ck_b + ck_a) & 0xFF
         return (ck_a, ck_b)
 
@@ -626,7 +652,13 @@ class UBloxMessage:
         '''check if the checksum is OK'''
         (ck_a, ck_b) = self.checksum()
         d = self._buf[2:-2]
-        (ck_a2, ck_b2) = struct.unpack('<BB', self._buf[-2:])
+        try:
+            (ck_a2, ck_b2) = struct.unpack('<BB', self._buf[-2:])
+        except TypeError: # python 3 workaround for str not having buf interface
+			# [-2:] means two last bytes
+            buflen = len(self._buf)
+            frame = bytes([ ord(self._buf[buflen - 2]), ord(self._buf[buflen - 1]) ])
+            (ck_a2, ck_b2) = struct.unpack('<BB', frame)
         return ck_a == ck_a2 and ck_b == ck_b2
 
     def needed_bytes(self):
@@ -746,8 +778,13 @@ class UBlox:
                 return self.dev.send(buf)
             elif self.use_xfer:
                 spiBuf = []
-                for b in buf:
-                    spiBuf.append(ord(b))
+                for b in buf: #todo: fix
+                   #if isinstance(b, int)
+                   #    b = chr(b)
+                   try: 
+                       spiBuf.append(ord(b))
+                   except TypeError: #python 3 workaround since in python3 buf will be bytes, no ord required
+                       spiBuf.append(b)
                 return self.dev.xfer2(spiBuf)
             return self.dev.write(buf)
 
@@ -865,7 +902,23 @@ class UBlox:
         '''send a ublox message with class, id and payload'''
         msg = UBloxMessage()
         msg._buf = struct.pack('<BBBBH', 0xb5, 0x62, msg_class, msg_id, len(payload))
-        msg._buf += payload
+        #import base64
+        #print(type(msg._buf))
+        #print(type(payload))
+        
+        #msg._buf is bytes
+        #payload is bytes OR strpayl
+        
+        #print("native: ")
+        #print(base64.b16encode(bytes(payload, "UTF-8")))
+        #print("encoded: ")
+        #print(payload.encode('utf8').encode('hex'))
+        msg._buf += payload             #works in 2 not in 3
+        #msg._buf += (bytes(payload, "UTF-8"))     #3
+        #msg._buf += bytearray(payload, "utf8") #error?
+        #msg._buf += payload.encode('hex').decode('hex')    #error?
+        #msg._buf += payload.encode() #error?
+        #print(msg._buf.encode('hex'))
         (ck_a, ck_b) = msg.checksum(msg._buf[2:])
         msg._buf += struct.pack('<BB', ck_a, ck_b)
         self.send(msg)
@@ -892,7 +945,7 @@ class UBlox:
         payload = struct.pack('<IIIB', clearMask, saveMask, loadMask, deviceMask)
         self.send_message(CLASS_CFG, MSG_CFG_CFG, payload)
 
-    def configure_poll(self, msg_class, msg_id, payload=''):
+    def configure_poll(self, msg_class, msg_id, payload=b''):
         '''poll a configuration message'''
         self.send_message(msg_class, msg_id, payload)
 
