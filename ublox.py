@@ -9,6 +9,13 @@ Released under GNU GPL version 3 or later
 import struct
 from datetime import datetime
 import time, os
+import sys
+
+# specify Python version
+if sys.version_info[0] < 3: # we're on python 2.x.x
+    PYTHON_VERSION = 2
+else:
+    PYTHON_VERSION = 3
 
 # protocol constants
 PREAMBLE1 = 0xb5
@@ -198,6 +205,18 @@ class UBloxDescriptor:
         self.count_field = count_field
         self.format2 = format2
         self.fields2 = fields2
+    
+    if sys.version_info[0] < 3: # we're on python 2.x.x
+        def getf(self, fmt, buf, size):
+            f = list(struct.unpack(fmt, buf[:size]))
+            return f
+    else: # we're on python 3.x.x - workarounds required
+        def getf(self, fmt, buf, size):
+            frame = bytearray()
+            for j in range(0, size):
+                frame.append(ord(buf[j]))
+            f = list(struct.unpack(fmt, frame))
+            return f
         
     def unpack(self, msg):
         '''unpack a UBloxMessage, creating the .fields and ._recs attributes in msg'''
@@ -214,14 +233,8 @@ class UBloxDescriptor:
             size1 = struct.calcsize(fmt)
             if size1 > len(buf):
                 raise UBloxError("%s INVALID_SIZE1=%u" % (self.name, len(buf)))
-            try:
-                f1 = list(struct.unpack(fmt, buf[:size1]))
-            except TypeError: # python 3 fix
-                frame = bytearray()
-                #frame = bytes([ ord(buf[4]) ])
-                for j in range(0, size1):
-                    frame.append(ord(buf[j]))
-                f1 = list(struct.unpack(fmt, frame))
+            f1 = self.getf(fmt, buf, size1)
+
             i = 0
             while i < len(f1):
                 field = fields.pop(0)
@@ -254,14 +267,7 @@ class UBloxDescriptor:
             r = UBloxAttrDict()
             if size2 > len(buf):
                 raise UBloxError("INVALID_SIZE=%u, " % len(buf))
-                
-            try:
-                f2 = list(struct.unpack(self.format2, buf[:size2]))
-            except TypeError: # python 3 fix
-                frame = bytearray()
-                for j in range(0, size2):
-                    frame.append(ord(buf[j]))
-                f2 = list(struct.unpack(self.format2, frame))
+            f2 = self.getf(self.format2, buf, size2)    
             
             for i in range(len(self.fields2)):
                 r[self.fields2[i]] = f2[i]
@@ -773,7 +779,7 @@ class UBlox:
             if self.use_sendrecv:
                 return self.dev.send(buf)
             elif self.use_xfer:
-                spiBuf = []
+                spiBuf = [] # form buf
                 for b in buf:
                    try: 
                        spiBuf.append(ord(b))
