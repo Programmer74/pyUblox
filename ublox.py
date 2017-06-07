@@ -601,8 +601,6 @@ class UBloxMessage:
         try:
             (payload_length,) = struct.unpack('<H', self._buf[4:6])
         except TypeError: # python 3 workaround since string does not have buffer interface
-            #print(self._buf[4])
-            #print(self._buf[5])
             frame = bytes([ ord(self._buf[4]), ord(self._buf[5]) ])
             (payload_length,) = struct.unpack('<H', frame)
         return payload_length
@@ -639,8 +637,6 @@ class UBloxMessage:
         ck_a = 0
         ck_b = 0
         for i in data:
-            #print(i)
-            #print(ord(i))
             try: 
                 ck_a = (ck_a + ord(i)) & 0xFF
             except TypeError: # python 3 workaround since in python3 data will be bytes, no ord required
@@ -778,9 +774,7 @@ class UBlox:
                 return self.dev.send(buf)
             elif self.use_xfer:
                 spiBuf = []
-                for b in buf: #todo: fix
-                   #if isinstance(b, int)
-                   #    b = chr(b)
+                for b in buf:
                    try: 
                        spiBuf.append(ord(b))
                    except TypeError: #python 3 workaround since in python3 buf will be bytes, no ord required
@@ -902,23 +896,9 @@ class UBlox:
         '''send a ublox message with class, id and payload'''
         msg = UBloxMessage()
         msg._buf = struct.pack('<BBBBH', 0xb5, 0x62, msg_class, msg_id, len(payload))
-        #import base64
-        #print(type(msg._buf))
-        #print(type(payload))
-        
-        #msg._buf is bytes
-        #payload is bytes OR strpayl
-        
-        #print("native: ")
-        #print(base64.b16encode(bytes(payload, "UTF-8")))
-        #print("encoded: ")
-        #print(payload.encode('utf8').encode('hex'))
-        msg._buf += payload             #works in 2 not in 3
-        #msg._buf += (bytes(payload, "UTF-8"))     #3
-        #msg._buf += bytearray(payload, "utf8") #error?
-        #msg._buf += payload.encode('hex').decode('hex')    #error?
-        #msg._buf += payload.encode() #error?
-        #print(msg._buf.encode('hex'))
+
+        msg._buf += payload # works in 2 fine but in 3 with some workarounds required
+
         (ck_a, ck_b) = msg.checksum(msg._buf[2:])
         msg._buf += struct.pack('<BB', ck_a, ck_b)
         self.send(msg)
