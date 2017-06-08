@@ -633,10 +633,7 @@ class UBloxMessage:
 
     def add(self, bytes):
         '''add some bytes to a message'''
-        #print("adding:")
-        #print(type(bytes))
-        #print("adding to:")
-        #print(type(self._buf))
+
         self._buf += bytes
         while not self.valid_so_far() and len(self._buf) > 0:
             '''handle corrupted streams'''
@@ -653,7 +650,7 @@ class UBloxMessage:
         ck_b = 0
         for i in data:
             if type(i) is str:
-                #print("it was str")
+               
                 ck_a = (ck_a + ord(i)) & 0xFF
             else:
                 ck_a = (ck_a + i) & 0xFF
@@ -786,7 +783,7 @@ class UBlox:
                 spiBuf = [] # form buf
                 for b in buf:
                     if type(b) is str:
-                        #print("it was str in buf")
+                        
                         spiBuf.append(ord(b))
                     else:
                         spiBuf.append(b)
