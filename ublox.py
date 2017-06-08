@@ -206,16 +206,8 @@ class UBloxDescriptor:
         self.format2 = format2
         self.fields2 = fields2
     
-    if sys.version_info[0] < 3: # we're on python 2.x.x
-        def getf(self, fmt, buf, size):
+    def getf(self, fmt, buf, size):
             f = list(struct.unpack(fmt, buf[:size]))
-            return f
-    else: # we're on python 3.x.x - workarounds required
-        def getf(self, fmt, buf, size):
-            frame = bytearray()
-            for j in range(0, size):
-                frame.append(ord(buf[j]))
-            f = list(struct.unpack(fmt, frame))
             return f
         
     def unpack(self, msg):
@@ -523,7 +515,7 @@ msg_types = {
 class UBloxMessage:
     '''UBlox message class - holds a UBX binary message'''
     def __init__(self):
-        self._buf = ""
+        self._buf = b""
         self._fields = {}
         self._recs = []
         self._unpacked = False
@@ -589,14 +581,23 @@ class UBloxMessage:
         if not type in msg_types:
             raise UBloxError('Unknown message %s length=%u' % (str(type), len(self._buf)))
         return msg_types[type].name
+    
+    if PYTHON_VERSION == 2:
+        def msg_class(self):
+            '''return the message class'''
+            return ord(self._buf[2])
 
-    def msg_class(self):
-        '''return the message class'''
-        return ord(self._buf[2])
+        def msg_id(self):
+            '''return the message id within the class'''
+            return ord(self._buf[3])
+    else:
+        def msg_class(self):
+            '''return the message class'''
+            return (self._buf[2])
 
-    def msg_id(self):
-        '''return the message id within the class'''
-        return ord(self._buf[3])
+        def msg_id(self):
+            '''return the message id within the class'''
+            return (self._buf[3])
 
     def msg_type(self):
         '''return the message type tuple (class, id)'''
@@ -604,20 +605,24 @@ class UBloxMessage:
 
     def msg_length(self):
         '''return the payload length'''
-        try:
-            (payload_length,) = struct.unpack('<H', self._buf[4:6])
-        except TypeError: # python 3 workaround since string does not have buffer interface
-            frame = bytes([ ord(self._buf[4]), ord(self._buf[5]) ])
-            (payload_length,) = struct.unpack('<H', frame)
+        (payload_length,) = struct.unpack('<H', self._buf[4:6])
         return payload_length
 
     def valid_so_far(self):
         '''check if the message is valid so far'''
-        if len(self._buf) > 0 and ord(self._buf[0]) != PREAMBLE1:
-            return False
-        if len(self._buf) > 1 and ord(self._buf[1]) != PREAMBLE2:
-            self.debug(1, "bad pre2")
-            return False
+        if PYTHON_VERSION == 2:
+            if len(self._buf) > 0 and ord(self._buf[0]) != PREAMBLE1:
+                return False
+            if len(self._buf) > 1 and ord(self._buf[1]) != PREAMBLE2:
+                self.debug(1, "bad pre2")
+                return False
+        else:
+            if len(self._buf) > 0 and (self._buf[0]) != PREAMBLE1:
+                return False
+            if len(self._buf) > 1 and (self._buf[1]) != PREAMBLE2:
+                self.debug(1, "bad pre2")
+                return False
+                
         if self.needed_bytes() == 0 and not self.valid():
             if len(self._buf) > 8:
                 self.debug(1, "bad checksum len=%u needed=%u" % (len(self._buf), self.needed_bytes()))
@@ -628,12 +633,16 @@ class UBloxMessage:
 
     def add(self, bytes):
         '''add some bytes to a message'''
+        #print("adding:")
+        #print(type(bytes))
+        #print("adding to:")
+        #print(type(self._buf))
         self._buf += bytes
         while not self.valid_so_far() and len(self._buf) > 0:
             '''handle corrupted streams'''
             self._buf = self._buf[1:]
         if self.needed_bytes() < 0:
-            self._buf = ""
+            self._buf = b""
 
     def checksum(self, data=None):
         '''return a checksum tuple for a message'''
@@ -643,9 +652,10 @@ class UBloxMessage:
         ck_a = 0
         ck_b = 0
         for i in data:
-            try: 
+            if type(i) is str:
+                #print("it was str")
                 ck_a = (ck_a + ord(i)) & 0xFF
-            except TypeError: # python 3 workaround since in python3 data will be bytes, no ord required
+            else:
                 ck_a = (ck_a + i) & 0xFF
             ck_b = (ck_b + ck_a) & 0xFF
         return (ck_a, ck_b)
@@ -654,13 +664,7 @@ class UBloxMessage:
         '''check if the checksum is OK'''
         (ck_a, ck_b) = self.checksum()
         d = self._buf[2:-2]
-        try:
-            (ck_a2, ck_b2) = struct.unpack('<BB', self._buf[-2:])
-        except TypeError: # python 3 workaround for str not having buf interface
-			# [-2:] means two last bytes
-            buflen = len(self._buf)
-            frame = bytes([ ord(self._buf[buflen - 2]), ord(self._buf[buflen - 1]) ])
-            (ck_a2, ck_b2) = struct.unpack('<BB', frame)
+        (ck_a2, ck_b2) = struct.unpack('<BB', self._buf[-2:])
         return ck_a == ck_a2 and ck_b == ck_b2
 
     def needed_bytes(self):
@@ -781,29 +785,42 @@ class UBlox:
             elif self.use_xfer:
                 spiBuf = [] # form buf
                 for b in buf:
-                   try: 
-                       spiBuf.append(ord(b))
-                   except TypeError: #python 3 workaround since in python3 buf will be bytes, no ord required
-                       spiBuf.append(b)
+                    if type(b) is str:
+                        #print("it was str in buf")
+                        spiBuf.append(ord(b))
+                    else:
+                        spiBuf.append(b)
                 return self.dev.xfer2(spiBuf)
             return self.dev.write(buf)
 
     def read(self, n):
         '''read some bytes'''
+        
         if self.use_sendrecv:
             import socket
             try:
-                return self.dev.recv(n)
+                buf = self.dev.recv(n)
+                return buf
             except socket.error as e:
-                return ''
+                return b''
         if self.use_xfer:
-            return self.dev.readbytes(n)
-        return self.dev.read(n)
+            buf = self.dev.readbytes(n)
+            return buf
+            
+        buf = self.dev.read(n)
+        return buf
 
     def send_nmea(self, msg):
         if not self.read_only:
             s = msg + "*%02X" % self.nmea_checksum(msg)
-            self.write(s)
+            
+            if PYTHON_VERSION == 2:
+                b = bytearray()
+                b.extend(s)
+            else:
+                b = bytearray()
+                b.extend(map(ord, s))
+            self.write(b)
 
     def set_binary(self):
         '''put a UBlox into binary mode using a NMEA string'''
@@ -867,8 +884,14 @@ class UBlox:
                     time.sleep(0.01)
                     continue
                 return None
-            if self.use_xfer:
-                b = "".join([chr(c) for c in b])
+            if self.use_xfer: 
+                if PYTHON_VERSION == 3:
+                    bb = bytearray()
+                    for c in b:
+                        bb.append(c)
+                    b = bb
+                else:
+                    b = "".join([chr(c) for c in b]) # here str
             msg.add(b)
             if self.log is not None:
                 self.log.write(b)
@@ -903,7 +926,7 @@ class UBlox:
         msg = UBloxMessage()
         msg._buf = struct.pack('<BBBBH', 0xb5, 0x62, msg_class, msg_id, len(payload))
 
-        msg._buf += payload # works in 2 fine but in 3 with some workarounds required
+        msg._buf += payload 
 
         (ck_a, ck_b) = msg.checksum(msg._buf[2:])
         msg._buf += struct.pack('<BB', ck_a, ck_b)
